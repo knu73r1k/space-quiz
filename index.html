@@ -465,6 +465,72 @@
     font-family: inherit;
   }
   .restart-btn:active { transform: scale(0.98); }
+  .review-toggle {
+    width: 100%;
+    margin-top: 14px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--hud-line);
+    background: color-mix(in srgb, var(--accent) 10%, var(--card));
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .review-toggle .chevron {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .review-toggle[aria-expanded="true"] .chevron {
+    transform: rotate(180deg);
+  }
+  .review-panel {
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--bg) 75%, var(--card));
+    text-align: left;
+    padding: 8px;
+    max-height: 190px;
+    overflow: auto;
+  }
+  .review-item {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--card);
+    padding: 9px 10px;
+    margin-bottom: 8px;
+  }
+  .review-item:last-child {
+    margin-bottom: 0;
+  }
+  .review-item .question {
+    font-size: 13px;
+    font-weight: 700;
+    margin: 0 0 4px;
+  }
+  .review-item .answer-row {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .review-item .answer-row strong {
+    color: var(--text);
+  }
+  .review-note {
+    margin: 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    background: color-mix(in srgb, var(--correct) 18%, transparent);
+    color: var(--correct);
+    font-weight: 600;
+  }
   footer {
     text-align: center;
     margin-top: 18px;
@@ -476,7 +542,8 @@
   /* Keyboard focus states */
   .option:focus-visible,
   .next-btn:focus-visible,
-  .restart-btn:focus-visible {
+  .restart-btn:focus-visible,
+  .review-toggle:focus-visible {
     outline: 3px solid var(--accent-2);
     outline-offset: 2px;
     box-shadow: 0 0 0 5px var(--hud-glow);
@@ -545,6 +612,17 @@
       <h2 id="resultTitle">Mission Complete!</h2>
       <div class="score-big" id="resultScore">0 / 10</div>
       <p class="msg" id="resultMsg"></p>
+      <button
+        class="review-toggle"
+        id="reviewToggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="reviewPanel"
+      >
+        Review your answers
+        <span class="chevron" aria-hidden="true">▼</span>
+      </button>
+      <div id="reviewPanel" class="review-panel" hidden></div>
       <button class="restart-btn" id="restartBtn">Restart Mission 🔁</button>
     </div>
   </div>
@@ -621,12 +699,69 @@
   const resultTitle = document.getElementById('resultTitle');
   const resultScore = document.getElementById('resultScore');
   const resultMsg = document.getElementById('resultMsg');
+  const reviewToggle = document.getElementById('reviewToggle');
+  const reviewPanel = document.getElementById('reviewPanel');
   const restartBtn = document.getElementById('restartBtn');
 
   let current = 0;
   let score = 0;
   let locked = false;
   let hasRenderedOnce = false;
+  let answers = [];
+
+  function setReviewCollapsed(collapsed) {
+    reviewToggle.setAttribute('aria-expanded', String(!collapsed));
+    reviewPanel.hidden = collapsed;
+  }
+
+  function getMissedQuestions() {
+    const missed = [];
+    for (let i = 0; i < questions.length; i++) {
+      const selected = answers[i];
+      const item = questions[i];
+      if (selected !== item.answer) {
+        missed.push({
+          question: item.q,
+          selectedAnswer: selected === undefined ? 'No answer selected' : item.options[selected],
+          correctAnswer: item.options[item.answer]
+        });
+      }
+    }
+    return missed;
+  }
+
+  function renderReviewSummary() {
+    const missed = getMissedQuestions();
+    reviewPanel.innerHTML = '';
+    if (missed.length === 0) {
+      const note = document.createElement('p');
+      note.className = 'review-note';
+      note.textContent = 'Perfect score! You answered every question correctly. 🌟';
+      reviewPanel.appendChild(note);
+      return;
+    }
+    missed.forEach((entry) => {
+      const card = document.createElement('article');
+      card.className = 'review-item';
+      const question = document.createElement('p');
+      question.className = 'question';
+      question.textContent = entry.question;
+      const selected = document.createElement('p');
+      selected.className = 'answer-row';
+      const selectedLabel = document.createElement('strong');
+      selectedLabel.textContent = 'Your answer:';
+      selected.appendChild(selectedLabel);
+      selected.append(` ${entry.selectedAnswer}`);
+      const correct = document.createElement('p');
+      correct.className = 'answer-row';
+      const correctLabel = document.createElement('strong');
+      correctLabel.textContent = 'Correct answer:';
+      correct.appendChild(correctLabel);
+      correct.append(` ${entry.correctAnswer}`);
+      card.append(question, selected, correct);
+      reviewPanel.appendChild(card);
+    });
+  }
 
   function renderQuestion() {
     locked = false;
@@ -669,6 +804,7 @@
     if (locked) return;
     locked = true;
     const item = questions[current];
+    answers[current] = idx;
     const buttons = optionsWrap.querySelectorAll('.option');
     buttons.forEach(b => b.disabled = true);
 
@@ -730,6 +866,8 @@
     resultEmoji.textContent = emoji;
     resultTitle.textContent = title;
     resultMsg.textContent = msg;
+    renderReviewSummary();
+    setReviewCollapsed(true);
 
     // Extra celebration for a great score (8+ out of 10).
     resultsView.classList.toggle('celebrate', score >= 8);
@@ -769,17 +907,63 @@
   function restart() {
     current = 0;
     score = 0;
+    answers = [];
     resultsView.classList.add('hidden');
     resultsView.classList.remove('celebrate');
     document.querySelectorAll('.confetti-piece').forEach(el => el.remove());
     quizView.classList.remove('hidden');
+    reviewPanel.innerHTML = '';
+    setReviewCollapsed(true);
     renderQuestion();
   }
 
+  function runSelfTests() {
+    const issues = [];
+    function assert(condition, message) {
+      if (!condition) issues.push(message);
+    }
+
+    const wrongAnswers = questions.map((q, i) => (i === 0 ? 0 : q.answer));
+    score = questions.length - 1;
+    answers = wrongAnswers;
+    showResults();
+    assert(reviewToggle.getAttribute('aria-expanded') === 'false', 'Review toggle should be collapsed by default.');
+    assert(reviewPanel.hidden, 'Review panel should be hidden by default.');
+    assert(reviewPanel.querySelectorAll('.review-item').length === 1, 'One missed question should be listed.');
+    assert(reviewPanel.textContent.includes('Your answer:'), 'Review should include the selected answer label.');
+    assert(reviewPanel.textContent.includes('Correct answer:'), 'Review should include the correct answer label.');
+
+    score = questions.length;
+    answers = questions.map(q => q.answer);
+    showResults();
+    assert(reviewPanel.querySelectorAll('.review-item').length === 0, 'Perfect score should not render missed-question cards.');
+    assert(reviewPanel.textContent.includes('Perfect score!'), 'Perfect score should render congratulatory review note.');
+
+    restart();
+    assert(reviewPanel.innerHTML === '', 'Restart should clear the review panel content.');
+    assert(reviewToggle.getAttribute('aria-expanded') === 'false', 'Restart should reset collapsed toggle state.');
+
+    const output = document.createElement('p');
+    output.style.fontSize = '12px';
+    output.style.marginTop = '8px';
+    output.style.fontFamily = 'var(--mono-font)';
+    output.textContent = issues.length === 0
+      ? 'Self-tests: PASS'
+      : `Self-tests: FAIL (${issues.join(' | ')})`;
+    document.querySelector('footer').appendChild(output);
+  }
+
+  reviewToggle.addEventListener('click', () => {
+    const isExpanded = reviewToggle.getAttribute('aria-expanded') === 'true';
+    setReviewCollapsed(isExpanded);
+  });
   nextBtn.addEventListener('click', nextQuestion);
   restartBtn.addEventListener('click', restart);
 
   renderQuestion();
+  if (new URLSearchParams(window.location.search).get('selfTest') === '1') {
+    runSelfTests();
+  }
 })();
 </script>
 </body>
